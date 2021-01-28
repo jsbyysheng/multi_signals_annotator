@@ -33,10 +33,43 @@
 """
 Helper functions for bag files and timestamps.
 """
-
+from __future__ import print_function
+import functools
+import os
 import math
+# import importlib
 import time
 import rospy
+# import rosbag
+import rospkg
+import numpy as np
+import subprocess, yaml
+
+rp = rospkg.RosPack()
+msg_map_file = os.path.join(rp.get_path('rqt_bag'), 'config', 'msg_map.yaml')
+with open(msg_map_file, 'r') as f:
+    msg_map = yaml.load(f)
+
+def timeit(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kargs):
+        start = time.time()
+        result = func(*args, **kargs)
+        stop = time.time()
+        print(stop - start)
+        return result
+    return wrapper
+
+def notNoneAttrs(*notNoneAttrs):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            for notNoneAttr in notNoneAttrs:
+                if getattr(self, notNoneAttr) == None:
+                    return None
+            return func(self, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def stamp_to_str(t):
@@ -112,6 +145,14 @@ def get_topics_by_datatype(bag):
 
     return topics_by_datatype
 
+# Get lists of topics and types from a bag
+def get_topics_and_types(bag):
+    topics = bag.get_type_and_topic_info()[1].keys()
+    types = []
+    for i in range(0,len(bag.get_type_and_topic_info()[1].values())):
+        types.append(bag.get_type_and_topic_info()[1].values()[i][0])
+    return topics, types
+
 
 def get_datatype(bag, topic):
     """
@@ -136,3 +177,48 @@ def filesize_to_str(size):
     if s > 0:
         return '%s %s' % (s, size_name[i])
     return '0 B'
+
+# Rewrite bag with header timestamps
+# This is useful in the case that the message receipt time substantially differs from the generation time, 
+# e.g. when messages are recorded over an unreliable or slow connection.
+
+# Note that this could potentially change the order in which messages are republished by rosbag play.
+
+def rewrite_ts_header(outbag, inputbag):
+    for topic, msg, t in inputbag.read_messages():
+        # This also replaces tf timestamps under the assumption 
+        # that all transforms in the message share the same timestamp
+        if topic == "/tf" and msg.transforms:
+            outbag.write(topic, msg, msg.transforms[0].header.stamp)
+        else:
+            outbag.write(topic, msg, msg.header.stamp if msg._has_header else t)
+
+
+# Add metadata to a bag
+def add_metadata(bag, metadata_msg):
+    bag.write('/metadata', metadata_msg, rospy.Time(bag.get_end_time()))
+
+
+# Get summary information about a bag
+def get_summary_info_exec(bag_file):
+    info_dict = yaml.load(subprocess.Popen(['rosbag', 'info', '--yaml', bag_file], stdout=subprocess.PIPE).communicate()[0])
+    return info_dict
+
+
+def get_summary_info(bag):
+    info_dict = yaml.load(bag._get_yaml_info())
+
+
+# Create a cropped bagfile
+def gen_cropped_bag(outbag, inputbag, num_msgs):
+    for topic, msg, t in inputbag.read_messages():
+        while num_msgs:
+            outbag.write(topic, msg, t)
+            num_msgs -= 1
+
+# def get_pytype_by_datatype(datatype):
+#     try:
+#         the_msg_map = msg_map[datatype]
+#         return getattr(importlib.import_module(the_msg_map['module']), the_msg_map['class'])
+#     except Exception:
+#         return None

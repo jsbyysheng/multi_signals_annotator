@@ -1,0 +1,43 @@
+ctl_msgs/AD7606:
+    module: ctl_msgs.msg
+    class: AD7606
+    extract:
+        paras: ["ad_value"]
+ctl_msgs/AudioData:
+    module: ctl_msgs.msg
+    class: AudioData
+    extract:
+        paras: ["channels", "connects", "data"]
+        extras: 
+            connects: "uint32"
+            data: "float32"
+ctl_msgs/AudioDisplayData:
+    module: ctl_msgs.msg
+    class: AudioDisplayData
+    extract:
+        paras: ["value"]
+ctl_msgs/MotorStatus:
+    module: ctl_msgs.msg
+    class: MotorStatus
+    extract:
+        paras: ["pwm_output_duty_cycle", "realtime_current", "realtime_reversing", "pwm_input_duty_cycle", "pwm_input_freq", "stall_status", "realtime_speed", "inner_temperature", "source_voltage"]
+geometry_msgs/PoseArray:
+    module: geometry_msgs.msg
+    class: PoseArray
+    extract:
+        paras: ["poses"]
+sensor_msgs/CompressedImage:
+    module: sensor_msgs.msg
+    class: CompressedImage
+    extract:
+        paras: ["format", "data"]
+std_msgs/Float32:
+    module: std_msgs.msg
+    class: Float32
+    extract:
+        paras: ["data"]
+geometry_msgs/WrenchStamped:
+    module: geometry_msgs.msg
+    class: WrenchStamped
+    extract:
+        paras: ["wrench.force.x", "wrench.force.y", "wrench.force.z", "wrench.torque.x", "wrench.torque.y", "wrench.torque.z"]

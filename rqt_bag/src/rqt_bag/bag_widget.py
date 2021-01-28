@@ -30,6 +30,7 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import print_function
 import os
 import time
 
@@ -38,14 +39,13 @@ import rospkg
 
 from python_qt_binding import loadUi
 from python_qt_binding.QtCore import qDebug, QFileInfo, Qt, qWarning, Signal
-from python_qt_binding.QtGui import QIcon, QResizeEvent
-from python_qt_binding.QtWidgets import QFileDialog, QGraphicsView, QWidget
+from python_qt_binding.QtGui import QIcon, QResizeEvent, QStandardItem, QStandardItemModel
+from python_qt_binding.QtWidgets import QFileDialog, QGraphicsView, QWidget, QMessageBox
 
 import rosbag
 from rqt_bag import bag_helper
 from .bag_timeline import BagTimeline
 from .topic_selection import TopicSelection
-
 
 class BagGraphicsView(QGraphicsView):
 
@@ -61,6 +61,7 @@ class BagWidget(QWidget):
     """
 
     last_open_dir = os.getcwd()
+    last_open_saving_dir = os.getcwd()
     set_status_text = Signal(str)
 
     def __init__(self, context, publish_clock):
@@ -80,6 +81,9 @@ class BagWidget(QWidget):
         self.graphics_view.resizeEvent = self._resizeEvent
         self.graphics_view.setMouseTracking(True)
 
+        self.topicsListView.resizeEvent = self._resizeEvent
+        self.topicsListViewModel = QStandardItemModel()
+
         self.play_icon = QIcon.fromTheme('media-playback-start')
         self.pause_icon = QIcon.fromTheme('media-playback-pause')
         self.play_button.setIcon(self.play_icon)
@@ -93,7 +97,6 @@ class BagWidget(QWidget):
         self.zoom_out_button.setIcon(QIcon.fromTheme('zoom-out'))
         self.zoom_all_button.setIcon(QIcon.fromTheme('zoom-original'))
         self.thumbs_button.setIcon(QIcon.fromTheme('insert-image'))
-        self.record_button.setIcon(QIcon.fromTheme('media-record'))
         self.load_button.setIcon(QIcon.fromTheme('document-open'))
         self.save_button.setIcon(QIcon.fromTheme('document-save'))
 
@@ -108,7 +111,6 @@ class BagWidget(QWidget):
         self.slower_button.clicked[bool].connect(self._handle_slower_clicked)
         self.begin_button.clicked[bool].connect(self._handle_begin_clicked)
         self.end_button.clicked[bool].connect(self._handle_end_clicked)
-        self.record_button.clicked[bool].connect(self._handle_record_clicked)
         self.load_button.clicked[bool].connect(self._handle_load_clicked)
         self.save_button.clicked[bool].connect(self._handle_save_clicked)
         self.graphics_view.mousePressEvent = self._timeline.on_mouse_down
@@ -135,10 +137,11 @@ class BagWidget(QWidget):
         self.end_button.setEnabled(False)
         self.save_button.setEnabled(False)
 
-        self._recording = False
-
         self._timeline.status_bar_changed_signal.connect(self._update_status_bar)
+        self._timeline.set_status_text.connect(self._set_status_text)
         self.set_status_text.connect(self._set_status_text)
+
+        self.bagfile_name = None
 
     def graphics_view_on_key_press(self, event):
         key = event.key()
@@ -238,50 +241,28 @@ class BagWidget(QWidget):
     def _handle_zoom_in_clicked(self):
         self._timeline.zoom_in()
 
-    def _handle_record_clicked(self):
-        if self._recording:
-            self._timeline.toggle_recording()
-            return
-
-        # TODO Implement limiting by regex and by number of messages per topic
-        self.topic_selection = TopicSelection()
-        self.topic_selection.recordSettingsSelected.connect(self._on_record_settings_selected)
-
-    def _on_record_settings_selected(self, all_topics, selected_topics):
-        # TODO verify master is still running
-
-        # Get the bag name to record to, prepopulating with a file name based on the current date/time
-        proposed_filename = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
-        filename = QFileDialog.getSaveFileName(
-            self, self.tr('Select name for new bag'), proposed_filename, self.tr('Bag files {.bag} (*.bag)'))[0]
-
-        if filename != '':
-            filename = filename.strip()
-            if not filename.endswith('.bag'):
-                filename += ".bag"
-
-            # Begin recording
-            self.load_button.setEnabled(False)
-            self._recording = True
-            self._timeline.record_bag(filename, all_topics, selected_topics)
-
     def _handle_load_clicked(self):
-        filenames = QFileDialog.getOpenFileNames(
-            self, self.tr('Load from Files'), self.last_open_dir, self.tr('Bag files {.bag} (*.bag)'))
-        if filenames and filenames[0]:
-            self.last_open_dir = QFileInfo(filenames[0][0]).absoluteDir().absolutePath()
-        for filename in filenames[0]:
+        filename,  _ = QFileDialog.getOpenFileName(self, self.tr('Load from Files'), self.last_open_dir, self.tr('Bag files {.bag} (*.bag)'))
+        if filename and os.path.exists(filename):
+            self.topicsListViewModel.clear()
+            self.last_open_dir = QFileInfo(filename).absoluteDir().absolutePath()
+            self.bagfile_name = os.path.basename(filename)[0:-4]
             self.load_bag(filename)
-
-        # After loading bag(s), force a resize event on the bag widget so that
-        # it can take the new height of the timeline into account (and show
-        # the scroll bar if necessary)
-        self._timeline._timeline_frame._layout()
-        self._resizeEvent(QResizeEvent(self.size(), self.size()))
+            # After loading bag(s), force a resize event on the bag widget so that
+            # it can take the new height of the timeline into account (and show
+            # the scroll bar if necessary)
+            self._timeline._timeline_frame._layout()
+            for topic in self._timeline._get_topics():
+                item = QStandardItem(topic)
+                item.setCheckable(True)
+                check = Qt.Unchecked
+                item.setCheckState(check)
+                self.topicsListViewModel.appendRow(item)
+            self.topicsListView.setModel(self.topicsListViewModel)
+            self._resizeEvent(QResizeEvent(self.size(), self.size()))
 
     def load_bag(self, filename):
         qDebug("Loading '%s'..." % filename.encode(errors='replace'))
-
         # QProgressBar can EITHER: show text or show a bouncing loading bar,
         #  but apparently the text is hidden when the bounding loading bar is
         #  shown
@@ -306,13 +287,12 @@ class BagWidget(QWidget):
             self.begin_button.setEnabled(True)
             self.end_button.setEnabled(True)
             self.save_button.setEnabled(True)
-            self.record_button.setEnabled(False)
             self._timeline.add_bag(bag)
-            qDebug("Done loading '%s'" % filename.encode(errors='replace'))
             # put the progress bar back the way it was
-            self.set_status_text.emit("")
+            qDebug("Done loading '%s'" % filename.encode(errors='replace'))
+            self.set_status_text.emit("Bag file has been loaded.")
         except rosbag.ROSBagException as e:
-            qWarning("Loading '%s' failed due to: %s" % (filename.encode(errors='replace'), e))
+            print("Loading '%s' failed due to: %s" % (filename.encode(errors='replace'), e))
             self.set_status_text.emit("Loading '%s' failed due to: %s" % (filename, e))
 
         # self.progress_bar.setFormat(progress_format)
@@ -321,24 +301,32 @@ class BagWidget(QWidget):
         # self clear loading filename
 
     def _handle_save_clicked(self):
-        # Get the bag name to record to, prepopulating with a file name based on the current date/time
-        proposed_filename = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime(time.time()))
-        filename = QFileDialog.getSaveFileName(
-            self, self.tr('Save selected region...'), proposed_filename, self.tr('Bag files {.bag} (*.bag)'))[0]
-        if filename != '':
-            filename = filename.strip()
-            if not filename.endswith('.bag'):
-                filename += '.bag'
-
-            # Copy the highlighted region
-            self._timeline.copy_region_to_bag(filename)
+        path_to_save = QFileDialog.getExistingDirectory(self, self.tr('Choose dir to save data'), self.last_open_saving_dir)
+        
+        topics_selection = [
+            '/exp_sys_signal/audio_record_data', 
+            '/exp_sys_signal/servo_drill/AD7606_AD_Value',
+            '/exp_sys_signal/polaris_ros_node/targets',
+            '/exp_sys_signal/force'
+        ]
+        start_stamp = None
+        end_stamp = None
+        
+        if path_to_save and os.path.exists(path_to_save):
+            self.last_open_saving_dir = path_to_save
+            path_to_save = os.path.join(path_to_save, self.bagfile_name)
+            try:
+                if not os.path.exists(path_to_save):
+                    os.mkdir(path_to_save)
+                self._timeline.extract_data_from_bag(topics_selection, path_to_save, start_stamp, end_stamp)
+            except Exception as e:
+                QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
 
     def _set_status_text(self, text):
+        self.progress_bar.setTextVisible(False)
         if text:
             self.progress_bar.setFormat(text)
             self.progress_bar.setTextVisible(True)
-        else:
-            self.progress_bar.setTextVisible(False)
 
     def _update_status_bar(self):
         if self._timeline._timeline_frame.playhead is None or self._timeline._timeline_frame.start_stamp is None:

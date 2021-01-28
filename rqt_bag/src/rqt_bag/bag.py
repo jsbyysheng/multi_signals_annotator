@@ -33,7 +33,6 @@
 import os
 import argparse
 import threading
-
 from qt_gui.plugin import Plugin
 
 from .bag_widget import BagWidget
@@ -56,8 +55,7 @@ class Bag(Plugin):
 
         self._widget = BagWidget(context, args.clock)
         if context.serial_number() > 1:
-            self._widget.setWindowTitle(
-                self._widget.windowTitle() + (' (%d)' % context.serial_number()))
+            self._widget.setWindowTitle(self._widget.windowTitle() + (' (%d)' % context.serial_number()))
         context.add_widget(self._widget)
 
         def load_bags():
