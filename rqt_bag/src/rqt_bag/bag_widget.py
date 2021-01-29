@@ -97,8 +97,6 @@ class BagWidget(QWidget):
         self.zoom_out_button.setIcon(QIcon.fromTheme('zoom-out'))
         self.zoom_all_button.setIcon(QIcon.fromTheme('zoom-original'))
         self.thumbs_button.setIcon(QIcon.fromTheme('insert-image'))
-        self.load_button.setIcon(QIcon.fromTheme('document-open'))
-        self.save_button.setIcon(QIcon.fromTheme('document-save'))
 
         self.play_button.clicked[bool].connect(self._handle_play_clicked)
         self.thumbs_button.clicked[bool].connect(self._handle_thumbs_clicked)
@@ -111,14 +109,17 @@ class BagWidget(QWidget):
         self.slower_button.clicked[bool].connect(self._handle_slower_clicked)
         self.begin_button.clicked[bool].connect(self._handle_begin_clicked)
         self.end_button.clicked[bool].connect(self._handle_end_clicked)
-        self.load_button.clicked[bool].connect(self._handle_load_clicked)
-        self.save_button.clicked[bool].connect(self._handle_save_clicked)
+        self.pushButton_load.clicked[bool].connect(self._handle_load_clicked)
+        self.pushButton_export.clicked[bool].connect(self._handle_save_clicked)
         self.graphics_view.mousePressEvent = self._timeline.on_mouse_down
         self.graphics_view.mouseReleaseEvent = self._timeline.on_mouse_up
         self.graphics_view.mouseMoveEvent = self._timeline.on_mouse_move
         self.graphics_view.wheelEvent = self._timeline.on_mousewheel
         self.closeEvent = self.handle_close
         self.keyPressEvent = self.on_key_press
+
+        self.topicsListView.clicked.connect(self._handle_topicsList_clicked)
+
         # TODO when the closeEvent is properly called by ROS_GUI implement that
         # event instead of destroyed
         self.destroyed.connect(self.handle_destroy)
@@ -135,7 +136,10 @@ class BagWidget(QWidget):
         self.slower_button.setEnabled(False)
         self.begin_button.setEnabled(False)
         self.end_button.setEnabled(False)
-        self.save_button.setEnabled(False)
+        self.pushButton_export.setEnabled(False)
+
+        self.lineEdit_bag_file_path.setText(self.last_open_dir)
+        self.lineEdit_export_path.setText(self.last_open_saving_dir)
 
         self._timeline.status_bar_changed_signal.connect(self._update_status_bar)
         self._timeline.set_status_text.connect(self._set_status_text)
@@ -241,11 +245,32 @@ class BagWidget(QWidget):
     def _handle_zoom_in_clicked(self):
         self._timeline.zoom_in()
 
+    def _handle_topicsList_clicked(self, qModelIndex):
+        row = qModelIndex.row()
+        if self.topicsListViewModel.item(row).checkState() == Qt.Unchecked:
+            self.topicsListViewModel.item(row).setCheckState(Qt.Checked)
+        elif self.topicsListViewModel.item(row).checkState() == Qt.Checked:
+            self.topicsListViewModel.item(row).setCheckState(Qt.Unchecked)
+
+    def _handle_select_all(self):
+        for i in range(self.topicsListViewModel.rowCount()):
+            item = self.topicsListViewModel.item(i)
+            item.setCheckState(Qt.Checked)
+
+    def _handle_unselect_all(self):
+        for i in range(self.topicsListViewModel.rowCount()):
+            item = self.topicsListViewModel.item(i)
+            item.setCheckState(Qt.Unchecked)
+
     def _handle_load_clicked(self):
+        if os.path.exists(self.lineEdit_bag_file_path.text()):
+            self.last_open_dir = self.lineEdit_bag_file_path.text()
         filename,  _ = QFileDialog.getOpenFileName(self, self.tr('Load from Files'), self.last_open_dir, self.tr('Bag files {.bag} (*.bag)'))
+        last_topics_selection = self._get_selected_topics()
         if filename and os.path.exists(filename):
             self.topicsListViewModel.clear()
             self.last_open_dir = QFileInfo(filename).absoluteDir().absolutePath()
+            self.lineEdit_bag_file_path.setText(self.last_open_dir)
             self.bagfile_name = os.path.basename(filename)[0:-4]
             self.load_bag(filename)
             # After loading bag(s), force a resize event on the bag widget so that
@@ -254,12 +279,28 @@ class BagWidget(QWidget):
             self._timeline._timeline_frame._layout()
             for topic in self._timeline._get_topics():
                 item = QStandardItem(topic)
-                item.setCheckable(True)
-                check = Qt.Unchecked
+                item.setEditable(False)
+                item.setCheckable(False)
+                check = Qt.Checked if topic in last_topics_selection else Qt.Unchecked
                 item.setCheckState(check)
                 self.topicsListViewModel.appendRow(item)
             self.topicsListView.setModel(self.topicsListViewModel)
             self._resizeEvent(QResizeEvent(self.size(), self.size()))
+
+    def load_buttons_status(self, status):
+        self.pushButton_load.setEnabled(status)
+        self.play_button.setEnabled(status)
+        self.thumbs_button.setEnabled(status)
+        self.zoom_in_button.setEnabled(status)
+        self.zoom_out_button.setEnabled(status)
+        self.zoom_all_button.setEnabled(status)
+        self.next_button.setEnabled(status)
+        self.previous_button.setEnabled(status)
+        self.faster_button.setEnabled(status)
+        self.slower_button.setEnabled(status)
+        self.begin_button.setEnabled(status)
+        self.end_button.setEnabled(status)
+        self.pushButton_export.setEnabled(status)
 
     def load_bag(self, filename):
         qDebug("Loading '%s'..." % filename.encode(errors='replace'))
@@ -275,19 +316,9 @@ class BagWidget(QWidget):
 
         try:
             bag = rosbag.Bag(filename)
-            self.play_button.setEnabled(True)
-            self.thumbs_button.setEnabled(True)
-            self.zoom_in_button.setEnabled(True)
-            self.zoom_out_button.setEnabled(True)
-            self.zoom_all_button.setEnabled(True)
-            self.next_button.setEnabled(True)
-            self.previous_button.setEnabled(True)
-            self.faster_button.setEnabled(True)
-            self.slower_button.setEnabled(True)
-            self.begin_button.setEnabled(True)
-            self.end_button.setEnabled(True)
-            self.save_button.setEnabled(True)
+            self.load_buttons_status(False)
             self._timeline.add_bag(bag)
+            self.load_buttons_status(True)
             # put the progress bar back the way it was
             qDebug("Done loading '%s'" % filename.encode(errors='replace'))
             self.set_status_text.emit("Bag file has been loaded.")
@@ -299,28 +330,36 @@ class BagWidget(QWidget):
         # self.progress_bar.setTextVisible(progress_text_visible) # causes a segfault :(
         # self.progress_bar.setRange(0, 100)
         # self clear loading filename
+    
+    def _get_selected_topics(self):
+        topics = self._timeline._get_topics()
+        topics_selection = [
+            topics[i] 
+            for i in range(self.topicsListViewModel.rowCount()) 
+            if self.topicsListViewModel.item(i).checkState() == Qt.Checked
+        ]
+        return topics_selection
 
     def _handle_save_clicked(self):
-        path_to_save = QFileDialog.getExistingDirectory(self, self.tr('Choose dir to save data'), self.last_open_saving_dir)
-        
-        topics_selection = [
-            '/exp_sys_signal/audio_record_data', 
-            '/exp_sys_signal/servo_drill/AD7606_AD_Value',
-            '/exp_sys_signal/polaris_ros_node/targets',
-            '/exp_sys_signal/force'
-        ]
-        start_stamp = None
-        end_stamp = None
-        
-        if path_to_save and os.path.exists(path_to_save):
-            self.last_open_saving_dir = path_to_save
-            path_to_save = os.path.join(path_to_save, self.bagfile_name)
-            try:
-                if not os.path.exists(path_to_save):
-                    os.mkdir(path_to_save)
-                self._timeline.extract_data_from_bag(topics_selection, path_to_save, start_stamp, end_stamp)
-            except Exception as e:
-                QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
+        if os.path.exists(self.lineEdit_export_path.text()):
+            self.last_open_saving_dir = self.lineEdit_export_path.text()
+        topics_selection = self._get_selected_topics()
+        if topics_selection is not None and topics_selection != [] and None not in topics_selection:
+            start_stamp = None
+            end_stamp = None
+            path_to_save = QFileDialog.getExistingDirectory(self, self.tr('Choose dir to save data'), self.last_open_saving_dir)
+            if path_to_save and os.path.exists(path_to_save):
+                self.last_open_saving_dir = path_to_save
+                self.lineEdit_export_path.setText(self.last_open_saving_dir)
+                path_to_save = os.path.join(path_to_save, self.bagfile_name)
+                try:
+                    if not os.path.exists(path_to_save):
+                        os.mkdir(path_to_save)
+                    self._timeline.extract_data_from_bag(topics_selection, path_to_save, start_stamp, end_stamp)
+                except Exception as e:
+                    QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
+        else:
+            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Please select 1 topic at least.', QMessageBox.Ok).exec_()
 
     def _set_status_text(self, text):
         self.progress_bar.setTextVisible(False)
