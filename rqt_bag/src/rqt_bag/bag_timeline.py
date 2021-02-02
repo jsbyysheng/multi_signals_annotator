@@ -30,7 +30,8 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from os import error
+import os
+import signal
 
 from numpy.core.defchararray import index
 import rospy
@@ -42,20 +43,16 @@ import pandas as pd
 import os
 from operator import attrgetter
 
-from python_qt_binding.QtCore import Qt, QTimer, qWarning, Signal
+from python_qt_binding.QtCore import Qt, QObject, QTimer, QProcess, qWarning, Signal
 from python_qt_binding.QtWidgets import QGraphicsScene, QMessageBox
 
 from rqt_bag import bag_helper
 
 from .bag_helper import get_topics, notNoneAttrs
-from .timeline_frame import TimelineFrame
-from .message_listener_thread import MessageListenerThread
-from .message_loader_thread import MessageLoaderThread
 from .player import Player
-from .timeline_menu import TimelinePopupMenu
 
 
-class BagTimeline(QGraphicsScene):
+class BagTimeline(QObject):
 
     """
     BagTimeline contains bag files, all information required to display the bag data visualization
@@ -64,6 +61,7 @@ class BagTimeline(QGraphicsScene):
     status_bar_changed_signal = Signal()
     selected_region_changed = Signal(rospy.Time, rospy.Time)
     set_status_text = Signal(str)
+    update_player_progress = Signal()
 
     def __init__(self, context, publish_clock):
         """
@@ -73,6 +71,7 @@ class BagTimeline(QGraphicsScene):
         """
         super(BagTimeline, self).__init__()
         self._bags = None
+        self.bag_filename = None
         self._bag_lock = threading.RLock()
 
         self.background_task = None  # Display string
@@ -83,15 +82,9 @@ class BagTimeline(QGraphicsScene):
         self._max_play_speed = 1024.0  # fastest X play speed
         self._min_play_speed = 1.0 / 1024.0  # slowest X play speed
         self._play_speed = 0.0
-        self._play_all = False
-        self._playhead_positions_cvs = {}
-        self._playhead_positions = {}  # topic -> (bag, position)
-        self._message_loaders = {}
-        self._messages_cvs = {}
-        self._messages = {}  # topic -> (bag, msg_data)
-        self._message_listener_threads = {}  # listener -> MessageListenerThread
+        self._playhead_positions = 0.0
+        self._curr_timestamp = 0.0
         self._player = False
-        self._publish_clock = publish_clock
         self.last_frame = None
         self.last_playhead = None
         self.desired_playhead = None
@@ -101,26 +94,13 @@ class BagTimeline(QGraphicsScene):
         self._play_timer.timeout.connect(self.on_idle)
         self._play_timer.setInterval(3)
 
-        # Plugin popup management
         self._context = context
-        self.popups = {}
-        self._views = []
-        self._listeners = {}
 
-        # Initialize scene
-        # the timeline renderer fixes use of black pens and fills, so ensure we fix white here for
-        # contrast. Otherwise a dark qt theme will default it to black and the frame render
-        # pen will be unreadable
-        self.setBackgroundBrush(Qt.white)
-        self._timeline_frame = TimelineFrame(self)
-        self._timeline_frame.setPos(0, 0)
-        self.addItem(self._timeline_frame)
         self._datatype_by_topic = None
         self._pyclass_by_topic = None
 
         self.background_progress = 0
         self.__closed = False
-
 
     def get_context(self):
         """
@@ -136,25 +116,18 @@ class BagTimeline(QGraphicsScene):
             return
         else:
             self.__closed = True
-        self._play_timer.stop()
-        topics = self._get_topics()
-        if topics is not None:
-            for topic in topics:
-                self.stop_publishing(topic)
-                self._message_loaders[topic].stop()
+        # self._play_timer.stop()
+        self.stop_publishing()
+
         if self._player:
             self._player.stop()
         if self.background_task is not None:
             self.background_task_cancel = True
-        self._timeline_frame.handle_close()
         if self._bags is not None:
             self._bags.close()
-        for frame in self._views:
-            if frame.parent():
-                self._context.remove_widget(frame)
 
     # Bag Management and access
-    def add_bag(self, bag):
+    def add_bag(self, bag, filename):
         """
         creates an indexing thread for each new topic in the bag
         fixes the boarders and notifies the indexing thread to index the new items bags
@@ -165,36 +138,22 @@ class BagTimeline(QGraphicsScene):
             self._bags = None
             del self._bags
         self._bags = bag
+        self.bag_filename = filename
 
         bag_topics = bag_helper.get_topics(bag)
+        self._topics_by_datatype, self._datatype_by_topic = self._get_topics_and_datatypes()
+        self._curr_timestamp = self._get_start_stamp().to_sec()
+        self._set_playhead_position(0.0)
 
-        self._playhead_positions_cvs = {}
-        self._messages_cvs = {}
-        self._message_loaders = {}
+    @notNoneAttrs('_bags')
+    def duration(self):
+        '''
+        :return: float, timestamp in seconds, includes fractions of a second
+        '''
+        with self._bag_lock:
+            return self._bags.get_end_time() - self._bags.get_start_time()
 
-        for topic in bag_topics:
-            self._playhead_positions_cvs[topic] = threading.Condition()
-            self._messages_cvs[topic] = threading.Condition()
-            self._message_loaders[topic] = MessageLoaderThread(self, topic)
-
-        self._timeline_frame._start_stamp = self._get_start_stamp()
-        self._timeline_frame._end_stamp = self._get_end_stamp()
-        self._timeline_frame.topics = self._get_topics()
-        self._timeline_frame._topics_by_datatype, self._datatype_by_topic = self._get_topics_and_datatypes()
-        # reset the timeline
-        self._timeline_frame.reset_timeline()
-
-        # Invalidate entire index cache for all topics in this bag
-        with self._timeline_frame.index_cache_cv:
-            del self._timeline_frame.index_cache, self._timeline_frame.invalidated_caches
-            self._timeline_frame.index_cache = {}
-            self._timeline_frame.invalidated_caches = set()
-            
-            for topic in bag_topics:
-                self._timeline_frame.invalidated_caches.add(topic)
-
-            self._timeline_frame.index_cache_cv.notify()
-
+    @notNoneAttrs('_bags')
     def file_size(self):
         with self._bag_lock:
             return self._bags.size
@@ -372,38 +331,6 @@ class BagTimeline(QGraphicsScene):
 
             return entry_bag, entry
 
-    def get_next_message_time(self):
-        """
-        :return: time of the next message after the current playhead position,''rospy.Time''
-        """
-        if self._timeline_frame.playhead is None:
-            return None
-
-        _, entry = self.get_entry_after(self._timeline_frame.playhead)
-        if entry is None:
-            return self._timeline_frame._start_stamp
-
-        return entry.time
-
-    def get_previous_message_time(self):
-        """
-        :return: time of the next message before the current playhead position,''rospy.Time''
-        """
-        if self._timeline_frame.playhead is None:
-            return None
-
-        _, entry = self.get_entry_before(self._timeline_frame.playhead)
-        if entry is None:
-            return self._timeline_frame._end_stamp
-
-        return entry.time
-
-    def resume(self):
-        if (self._player):
-            self._player.resume()
-
-    # Copy messages to...
-
     def start_background_task(self, background_task):
         """
         Verify that a background task is not currently running before starting a new one
@@ -529,337 +456,71 @@ class BagTimeline(QGraphicsScene):
             self.status_bar_changed_signal.emit()
             for topic in topics_selection:
                 dataframe_by_topic[topic].to_pickle(folders_dict[topic])
-                print(dataframe_by_topic[topic].head())
+                # print(dataframe_by_topic[topic].head())
         except Exception as e:
             QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error saving dataframes [%s]: %s' % (
                 "err", str(e)), QMessageBox.Ok).exec_()
         self.set_status_text.emit('Exporting selected topics has been done!')
         self.stop_background_task()
 
-    @notNoneAttrs('_bags')
-    def copy_region_to_bag(self, filename):
-        self._export_region(filename, self._timeline_frame.topics,
-                            self._timeline_frame.play_region[0],
-                            self._timeline_frame.play_region[1])
-
-    def _export_region(self, path, topics, start_stamp, end_stamp):
-        """
-        Starts a thread to save the current selection to a new bag file
-        :param path: filesystem path to write to, ''str''
-        :param topics: topics to write to the file, ''list(str)''
-        :param start_stamp: start of area to save, ''rospy.Time''
-        :param end_stamp: end of area to save, ''rospy.Time''
-        """
-        if not self.start_background_task('Copying messages to "%s"' % path):
-            return
-        # TODO implement a status bar area with information on the current save status
-        bag_entries = list(self.get_entries_with_bags(topics, start_stamp, end_stamp))
-
-        if self.background_task_cancel:
-            return
-
-        # Get the total number of messages to copy
-        total_messages = len(bag_entries)
-
-        # If no messages, prompt the user and return
-        if total_messages == 0:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'No messages found', QMessageBox.Ok).exec_()
-            self.stop_background_task()
-            return
-
-        # Open the path for writing
-        try:
-            export_bag = rosbag.Bag(path, 'w')
-        except Exception:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag',
-                        'Error opening bag file [%s] for writing' % path, QMessageBox.Ok).exec_()
-            self.stop_background_task()
-            return
-
-        # Run copying in a background thread
-        self._export_thread = threading.Thread(
-            target=self._run_export_region,
-            args=(export_bag, topics, start_stamp, end_stamp, bag_entries))
-        self._export_thread.start()
-
-    def _run_export_region(self, export_bag, topics, start_stamp, end_stamp, bag_entries):
-        """
-        Threaded function that saves the current selection to a new bag file
-        :param export_bag: bagfile to write to, ''rosbag.bag''
-        :param topics: topics to write to the file, ''list(str)''
-        :param start_stamp: start of area to save, ''rospy.Time''
-        :param end_stamp: end of area to save, ''rospy.Time''
-        """
-        total_messages = len(bag_entries)
-        update_step = max(1, total_messages / 100)
-        message_num = 1
-        progress = 0
-        # Write out the messages
-        for bag, entry in bag_entries:
-            if self.background_task_cancel:
-                break
-            try:
-                topic, msg, t = self.read_message(bag, entry.position)
-                export_bag.write(topic, msg, t)
-            except Exception as ex:
-                qWarning('Error exporting message at position %s: %s' %
-                         (str(entry.position), str(ex)))
-                export_bag.close()
-                self.stop_background_task()
-                return
-
-            if message_num % update_step == 0 or message_num == total_messages:
-                new_progress = int(100.0 * (float(message_num) / total_messages))
-                if new_progress != progress:
-                    progress = new_progress
-                    if not self.background_task_cancel:
-                        self.background_progress = progress
-                        self.status_bar_changed_signal.emit()
-
-            message_num += 1
-
-        # Close the bag
-        try:
-            self.background_progress = 0
-            self.status_bar_changed_signal.emit()
-            export_bag.close()
-        except Exception as ex:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error closing bag file [%s]: %s' % (
-                export_bag.filename, str(ex)), QMessageBox.Ok).exec_()
-        self.stop_background_task()
-
     def read_message(self, bag, position):
         with self._bag_lock:
             return bag._read_message(position)
 
-    # Mouse events
-    def on_mouse_down(self, event):
-        if event.buttons() == Qt.LeftButton:
-            self._timeline_frame.on_left_down(event)
-        elif event.buttons() == Qt.MidButton:
-            self._timeline_frame.on_middle_down(event)
-        elif event.buttons() == Qt.RightButton:
-            topic = self._timeline_frame.map_y_to_topic(self.views()[0].mapToScene(event.pos()).y())
-            TimelinePopupMenu(self, event, topic)
-
-    def on_mouse_up(self, event):
-        self._timeline_frame.on_mouse_up(event)
-
-    def on_mouse_move(self, event):
-        self._timeline_frame.on_mouse_move(event)
-
-    def on_mousewheel(self, event):
-        self._timeline_frame.on_mousewheel(event)
-
-    # Zooming
-
-    def zoom_in(self):
-        self._timeline_frame.zoom_in()
-
-    def zoom_out(self):
-        self._timeline_frame.zoom_out()
-
-    def reset_zoom(self):
-        self._timeline_frame.reset_zoom()
-
-    def translate_timeline_left(self):
-        self._timeline_frame.translate_timeline_left()
-
-    def translate_timeline_right(self):
-        self._timeline_frame.translate_timeline_right()
-
-    # Publishing
-    def is_publishing(self, topic):
-        return self._player and self._player.is_publishing(topic)
-
-    def start_publishing(self, topic):
+    def start_publishing(self):
         if not self._player and not self._create_player():
             return False
 
-        self._player.start_publishing(topic)
+        self._player.start_publishing(self._playhead_positions, self.play_speed)
         return True
 
-    def stop_publishing(self, topic):
+    def stop_publishing(self):
         if not self._player:
             return False
 
-        self._player.stop_publishing(topic)
+        self._player.stop_publishing()
         return True
+
+    def _set_playhead_position(self, pos):
+        self._playhead_positions = pos
+        self.update_player_progress.emit()
 
     def _create_player(self):
         if not self._player:
             try:
                 self._player = Player(self)
-                if self._publish_clock:
-                    self._player.start_clock_publishing()
+                self._player.errorSignal.connect(self._handle_player_error)
+                self._player.outputSignal.connect(self._handle_player_output)
             except Exception as ex:
                 qWarning('Error starting player; aborting publish: %s' % str(ex))
                 return False
 
         return True
 
-    def set_publishing_state(self, start_publishing):
-        if start_publishing:
-            for topic in self._timeline_frame.topics:
-                if not self.start_publishing(topic):
-                    break
-        else:
-            for topic in self._timeline_frame.topics:
-                self.stop_publishing(topic)
+    def _handle_player_output(self, ret):
+        if self._player.is_publishing:
+            result = ret.split(' ')
+            for idx in range(0, len(result)):
+                if result[idx] == u'Time:':
+                    try:
+                        self._curr_timestamp = float(result[idx + 1])
+                    except Exception:
+                        pass
+                if result[idx] == u'Duration:':
+                    try:
+                        self._set_playhead_position(self._player._playhead_offset + float(result[idx + 1]))
+                    except Exception:
+                        pass
 
-    # property: play_all
-    def _get_play_all(self):
-        return self._play_all
-
-    def _set_play_all(self, play_all):
-        if play_all == self._play_all:
-            return
-
-        self._play_all = not self._play_all
-
-        self.last_frame = None
-        self.last_playhead = None
-        self.desired_playhead = None
-
-    play_all = property(_get_play_all, _set_play_all)
-
-    def toggle_play_all(self):
-        self.play_all = not self.play_all
+    def _handle_player_error(self, ret):
+        print(ret)
 
     # Playing
     def on_idle(self):
-        self._step_playhead()
-
-    def _step_playhead(self):
-        """
-        moves the playhead to the next position based on the desired position
-        """
-        # Reset when the playing mode switchs
-        if self._timeline_frame.playhead != self.last_playhead:
-            self.last_frame = None
-            self.last_playhead = None
-            self.desired_playhead = None
-
-        if self._play_all:
-            self.step_next_message()
-        else:
-            self.step_fixed()
-
-    def step_fixed(self):
-        """
-        Moves the playhead a fixed distance into the future based on the current play speed
-        """
-        if self.play_speed == 0.0 or not self._timeline_frame.playhead:
-            self.last_frame = None
-            self.last_playhead = None
-            return
-
-        now = rospy.Time.from_sec(time.time())
-        if self.last_frame:
-            # Get new playhead
-            if self.stick_to_end:
-                new_playhead = self.end_stamp
-            else:
-                new_playhead = self._timeline_frame.playhead + \
-                    rospy.Duration.from_sec((now - self.last_frame).to_sec() * self.play_speed)
-
-                start_stamp, end_stamp = self._timeline_frame.play_region
-
-                if new_playhead > end_stamp:
-                    if self.wrap:
-                        if self.play_speed > 0.0:
-                            new_playhead = start_stamp
-                        else:
-                            new_playhead = end_stamp
-                    else:
-                        new_playhead = end_stamp
-
-                        if self.play_speed > 0.0:
-                            self.stick_to_end = True
-
-                elif new_playhead < start_stamp:
-                    if self.wrap:
-                        if self.play_speed < 0.0:
-                            new_playhead = end_stamp
-                        else:
-                            new_playhead = start_stamp
-                    else:
-                        new_playhead = start_stamp
-
-            # Update the playhead
-            self._timeline_frame.playhead = new_playhead
-
-        self.last_frame = now
-        self.last_playhead = self._timeline_frame.playhead
-
-    def step_next_message(self):
-        """
-        Move the playhead to the next message
-        """
-        if self.play_speed <= 0.0 or not self._timeline_frame.playhead:
-            self.last_frame = None
-            self.last_playhead = None
-            return
-
-        if self.last_frame:
-            if not self.desired_playhead:
-                self.desired_playhead = self._timeline_frame.playhead
-            else:
-                delta = rospy.Time.from_sec(time.time()) - self.last_frame
-                if delta > rospy.Duration.from_sec(0.1):
-                    delta = rospy.Duration.from_sec(0.1)
-                self.desired_playhead += delta
-
-            # Get the occurrence of the next message
-            next_message_time = self.get_next_message_time()
-
-            if next_message_time < self.desired_playhead:
-                self._timeline_frame.playhead = next_message_time
-            else:
-                self._timeline_frame.playhead = self.desired_playhead
-
-        self.last_frame = rospy.Time.from_sec(time.time())
-        self.last_playhead = self._timeline_frame.playhead
-
-    # Views / listeners
-    def add_view(self, topic, frame):
-        self._views.append(frame)
-
-    def has_listeners(self, topic):
-        return topic in self._listeners
-
-    def add_listener(self, topic, listener):
-        self._listeners.setdefault(topic, []).append(listener)
-
-        self._message_listener_threads[(topic, listener)] = \
-            MessageListenerThread(self, topic, listener)
-        # Notify the message listeners
-        self._message_loaders[topic].reset()
-        with self._playhead_positions_cvs[topic]:
-            self._playhead_positions_cvs[topic].notify_all()
-
-        self.update()
-
-    def remove_listener(self, topic, listener):
-        topic_listeners = self._listeners.get(topic)
-        if topic_listeners is not None and listener in topic_listeners:
-            topic_listeners.remove(listener)
-
-            if len(topic_listeners) == 0:
-                del self._listeners[topic]
-
-            # Stop the message listener thread
-            if (topic, listener) in self._message_listener_threads:
-                self._message_listener_threads[(topic, listener)].stop()
-                del self._message_listener_threads[(topic, listener)]
-            self.update()
-
-    # Playhead
+        pass
 
     # property: play_speed
     def _get_play_speed(self):
-        if self._timeline_frame._paused:
-            return 0.0
         return self._play_speed
 
     def _set_play_speed(self, play_speed):
@@ -875,35 +536,22 @@ class BagTimeline(QGraphicsScene):
 
         if self._play_speed < 1.0:
             self.stick_to_end = False
-
-        self.update()
+            
     play_speed = property(_get_play_speed, _set_play_speed)
-
-    def toggle_play(self):
-        if self._play_speed != 0.0:
-            self.play_speed = 0.0
-        else:
-            self.play_speed = 1.0
 
     def navigate_play(self):
         self.play_speed = 1.0
         self.last_frame = rospy.Time.from_sec(time.time())
-        self.last_playhead = self._timeline_frame.playhead
-        self._play_timer.start()
+        # self._play_timer.start()
+        self.start_publishing()
 
     def navigate_stop(self):
         self.play_speed = 0.0
-        self._play_timer.stop()
-
-    def navigate_previous(self):
-        self.navigate_stop()
-        self._timeline_frame.playhead = self.get_previous_message_time()
-        self.last_playhead = self._timeline_frame.playhead
+        # self._play_timer.stop()
+        self.stop_publishing()
 
     def navigate_next(self):
-        self.navigate_stop()
-        self._timeline_frame.playhead = self.get_next_message_time()
-        self.last_playhead = self._timeline_frame.playhead
+        pass
 
     def navigate_rewind(self):
         if self._play_speed < 0.0:
@@ -924,9 +572,3 @@ class BagTimeline(QGraphicsScene):
             new_play_speed = self._play_speed * 0.5
 
         self.play_speed = new_play_speed
-
-    def navigate_start(self):
-        self._timeline_frame.playhead = self._timeline_frame.play_region[0]
-
-    def navigate_end(self):
-        self._timeline_frame.playhead = self._timeline_frame.play_region[1]

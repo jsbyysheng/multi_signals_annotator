@@ -33,122 +33,90 @@
 """
 Player listens to messages from the timeline and publishes them to ROS.
 """
+import os
+import signal
 
 import rospy
 import rosgraph_msgs
 
-from python_qt_binding.QtCore import QObject
+import subprocess
+
+from python_qt_binding.QtCore import QObject, QProcess, Signal
 
 CLOCK_TOPIC = "/clock"
 
 
 class Player(QObject):
 
-    """
-    This object handles publishing messages as the playhead passes over their position
-    """
+    errorSignal = Signal(str) 
+    outputSignal = Signal(str)
+
+    cmd_rosbag = 'rosbag play --try-future-version'
+    cmd_delay = ' -d '
+    cmd_duration = ' -u '
+    cmd_start = ' -s '
+    cmd_publish_clock = ' --clock '
+    cmd_multiply_factor = ' -r '
+    cmd_select_topics = ' --topics '
+    cmd_bag_file = ' --bags='
+
 
     def __init__(self, timeline):
         super(Player, self).__init__()
         self.timeline = timeline
+        self.is_publishing = False
+        self._cmd_base = self.cmd_rosbag + self.cmd_delay + '0'
 
-        self._publishing = set()
-        self._publishers = {}
+        self._process = QProcess()
+        self._process.readyReadStandardError.connect(self._onReadyReadStandardError)
+        self._process.readyReadStandardOutput.connect(self._onReadyReadStandardOutput)
 
-        self._publish_clock = False
-        self._last_clock = rosgraph_msgs.msg.Clock()
-        self._resume = False
+        self._playhead_offset = 0.0
 
-    def resume(self):
-        self._resume = True
+    def _onReadyReadStandardError(self):
+        result = self._process.readAllStandardError().data().decode()
+        self.errorSignal.emit(result)
 
-    def is_publishing(self, topic):
-        return topic in self._publishing
+    def _onReadyReadStandardOutput(self):
+        result = self._process.readAllStandardOutput().data().decode()
+        self.outputSignal.emit(result)
 
-    def start_publishing(self, topic):
-        if topic in self._publishing:
-            return
-        self._publishing.add(topic)
-        self.timeline.add_listener(topic, self)
+    def _system_call(self, command):
+        """
+        Executes a system command.
+        """
+        self._process.waitForFinished(30000)
+        self._process.start(command)
 
-    def stop_publishing(self, topic):
-        if topic not in self._publishing:
-            return
-        self.timeline.remove_listener(topic, self)
+    def start_publishing(self, playhead_offset=0.0, speed=1.0):
+        if self.is_publishing:
+            self.stop_publishing()
 
-        if topic in self._publishers:
-            self._publishers[topic].unregister()
-            del self._publishers[topic]
+        cmd = self._cmd_base + self.cmd_bag_file + '\"' + self.timeline.bag_filename + '\"'
+        if not isinstance(playhead_offset, float):
+            playhead_offset = 0.0
+        cmd = cmd + self.cmd_start + str(playhead_offset)
+        self._playhead_offset = playhead_offset
+        if not isinstance(speed, float):
+            speed = 1.0
+        cmd = cmd + self.cmd_multiply_factor + str(speed)
+        self._system_call(cmd)
+        self.is_publishing = True
 
-        self._publishing.remove(topic)
+    def stop_publishing(self):
+        if self._process.processId() != 0:
+            self.terminate_process_and_children()
+        self.is_publishing = False
+        
 
-    def start_clock_publishing(self):
-        if CLOCK_TOPIC not in self._publishers:
-            # Activate clock publishing only if the publisher was created successful
-            self._publish_clock = self.create_publisher(CLOCK_TOPIC, rosgraph_msgs.msg.Clock())
-
-    def stop_clock_publishing(self):
-        self._publish_clock = False
-        if CLOCK_TOPIC in self._publishers:
-            self._publishers[CLOCK_TOPIC].unregister()
-            del self._publishers[CLOCK_TOPIC]
+    def terminate_process_and_children(self):
+        ps_command = subprocess.Popen("ps -o pid --ppid %d --noheaders" % self._process.processId(), shell=True, stdout=subprocess.PIPE)
+        ps_output = ps_command.stdout.read()
+        retcode = ps_command.wait()
+        assert retcode == 0, "ps command returned %d" % retcode
+        for pid_str in ps_output.split("\n")[:-1]:
+            os.kill(int(pid_str), signal.SIGINT)
+        os.kill(self._process.processId(), signal.SIGINT)
 
     def stop(self):
-        for topic in list(self._publishing):
-            self.stop_publishing(topic)
-        self.stop_clock_publishing()
-
-    def create_publisher(self, topic, msg):
-        try:
-            try:
-                self._publishers[topic] = rospy.Publisher(topic, type(msg), queue_size=100)
-            except TypeError:
-                self._publishers[topic] = rospy.Publisher(topic, type(msg))
-            return True
-        except Exception as ex:
-            # Any errors, stop listening/publishing to this topic
-            rospy.logerr('Error creating publisher on topic %s for type %s. \nError text: %s' %
-                         (topic, str(type(msg)), str(ex)))
-            if topic != CLOCK_TOPIC:
-                self.stop_publishing(topic)
-            return False
-
-    def message_viewed(self, bag, msg_data):
-        """
-        When a message is viewed publish it
-        :param bag: the bag the message is in, ''rosbag.bag''
-        :param msg_data: tuple of the message data and topic info, ''(str, msg)''
-        """
-        # Don't publish unless the playhead is moving.
-        if self.timeline.play_speed <= 0.0:
-            return
-
-        topic, msg, clock = msg_data
-
-        # Create publisher if this is the first message on the topic
-        if topic not in self._publishers:
-            self.create_publisher(topic, msg)
-
-        if self._publish_clock:
-            time_msg = rosgraph_msgs.msg.Clock()
-            time_msg.clock = clock
-            if self._resume or self._last_clock.clock < time_msg.clock:
-                self._resume = False
-                self._last_clock = time_msg
-                self._publishers[CLOCK_TOPIC].publish(time_msg)
-        self._publishers[topic].publish(msg)
-
-    def message_cleared(self):
-        pass
-
-    def event(self, event):
-        """
-        This function will be called to process events posted by post_event
-        it will call message_cleared or message_viewed with the relevant data
-        """
-        bag, msg_data = event.data
-        if msg_data:
-            self.message_viewed(bag, msg_data)
-        else:
-            self.message_cleared()
-        return True
+        self.stop_publishing()
