@@ -83,14 +83,14 @@ class BagWidget(QWidget):
         self.play_button.setIcon(self.play_icon)
         self.slower_button.setIcon(QIcon.fromTheme('media-seek-backward'))
         self.faster_button.setIcon(QIcon.fromTheme('media-seek-forward'))
-        self.next_button.setIcon(QIcon.fromTheme('go-next'))
 
         self.play_button.clicked[bool].connect(self._handle_play_clicked)
-        self.next_button.clicked[bool].connect(self._handle_next_clicked)
         self.faster_button.clicked[bool].connect(self._handle_faster_clicked)
         self.slower_button.clicked[bool].connect(self._handle_slower_clicked)
         self.pushButton_load.clicked[bool].connect(self._handle_load_clicked)
         self.pushButton_export.clicked[bool].connect(self._handle_save_clicked)
+        self.pushButton_selectAll.clicked[bool].connect(self._handle_select_all)
+        self.pushButton_unSelectAll.clicked[bool].connect(self._handle_unselect_all)
 
         self.slider_status = 'released'
         self.horizontalSlider.sliderPressed.connect(self._handle_slider_pressed)
@@ -119,12 +119,13 @@ class BagWidget(QWidget):
         self.destroyed.connect(self.handle_destroy)
 
         self.play_button.setEnabled(False)
-        self.next_button.setEnabled(False)
         self.faster_button.setEnabled(False)
         self.slower_button.setEnabled(False)
         self.pushButton_export.setEnabled(False)
         self.horizontalSlider.setEnabled(False)
         self.lineEdit_playhead.setEnabled(False)
+        self.pushButton_selectAll.setEnabled(False)
+        self.pushButton_unSelectAll.setEnabled(False)
 
         self.lineEdit_bag_file_path.setText(self.last_open_dir)
         self.lineEdit_export_path.setText(self.last_open_saving_dir)
@@ -198,11 +199,6 @@ class BagWidget(QWidget):
             self.play_button.setIcon(self.play_icon)
             self._timeline.navigate_stop()
 
-    def _handle_next_clicked(self):
-        self._timeline.navigate_next()
-        self.play_button.setChecked(False)
-        self.play_button.setIcon(self.play_icon)
-
     def _handle_faster_clicked(self):
         self._timeline.navigate_fastforward()
         self.play_button.setChecked(True)
@@ -257,12 +253,13 @@ class BagWidget(QWidget):
     def load_buttons_status(self, status):
         self.pushButton_load.setEnabled(status)
         self.play_button.setEnabled(status)
-        self.next_button.setEnabled(status)
         self.faster_button.setEnabled(status)
         self.slower_button.setEnabled(status)
         self.pushButton_export.setEnabled(status)
         self.horizontalSlider.setEnabled(status)
         self.lineEdit_playhead.setEnabled(status)
+        self.pushButton_selectAll.setEnabled(status)
+        self.pushButton_unSelectAll.setEnabled(status)
 
     def load_bag(self, filename):
         qDebug("Loading '%s'..." % filename.encode(errors='replace'))
