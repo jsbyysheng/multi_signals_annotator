@@ -81,7 +81,7 @@ class BagTimeline(QObject):
         self._playhead_lock = threading.RLock()
         self._max_play_speed = 1024.0  # fastest X play speed
         self._min_play_speed = 1.0 / 1024.0  # slowest X play speed
-        self._play_speed = 0.0
+        self._play_speed = 1.0
         self._playhead_positions = 0.0
         self._curr_timestamp = 0.0
         self._player = False
@@ -144,6 +144,7 @@ class BagTimeline(QObject):
         self._topics_by_datatype, self._datatype_by_topic = self._get_topics_and_datatypes()
         self._curr_timestamp = self._get_start_stamp().to_sec()
         self._set_playhead_position(0.0)
+        self.play_speed = 1.0
 
     @notNoneAttrs('_bags')
     def duration(self):
@@ -498,12 +499,15 @@ class BagTimeline(QObject):
         return True
 
     def _handle_player_output(self, ret):
+        if 'Done.' in ret:
+            self._player.is_publishing = False
         if self._player.is_publishing:
             result = ret.split(' ')
             for idx in range(0, len(result)):
                 if result[idx] == u'Time:':
                     try:
                         self._curr_timestamp = float(result[idx + 1])
+                        self.status_bar_changed_signal.emit()
                     except Exception:
                         pass
                 if result[idx] == u'Duration:':
@@ -526,49 +530,27 @@ class BagTimeline(QObject):
     def _set_play_speed(self, play_speed):
         if play_speed == self._play_speed:
             return
-
-        if play_speed > 0.0:
-            self._play_speed = min(self._max_play_speed, max(self._min_play_speed, play_speed))
-        elif play_speed < 0.0:
-            self._play_speed = max(-self._max_play_speed, min(-self._min_play_speed, play_speed))
-        else:
-            self._play_speed = play_speed
-
-        if self._play_speed < 1.0:
-            self.stick_to_end = False
+        self._play_speed = min(self._max_play_speed, max(self._min_play_speed, play_speed))
+        self.status_bar_changed_signal.emit()
             
     play_speed = property(_get_play_speed, _set_play_speed)
 
     def navigate_play(self):
-        self.play_speed = 1.0
         self.last_frame = rospy.Time.from_sec(time.time())
         # self._play_timer.start()
         self.start_publishing()
 
     def navigate_stop(self):
-        self.play_speed = 0.0
         # self._play_timer.stop()
         self.stop_publishing()
 
     def navigate_next(self):
         pass
 
-    def navigate_rewind(self):
-        if self._play_speed < 0.0:
-            new_play_speed = self._play_speed * 2.0
-        elif self._play_speed == 0.0:
-            new_play_speed = -1.0
-        else:
-            new_play_speed = self._play_speed * 0.5
-
-        self.play_speed = new_play_speed
-
     def navigate_fastforward(self):
-        if self._play_speed > 0.0:
-            new_play_speed = self._play_speed * 2.0
-        elif self._play_speed == 0.0:
-            new_play_speed = 2.0
-        else:
-            new_play_speed = self._play_speed * 0.5
+        self.play_speed = self._play_speed * 2.0
+        self.start_publishing()
 
-        self.play_speed = new_play_speed
+    def navigate_rewind(self):
+        self.play_speed = self._play_speed * 0.5
+        self.start_publishing()

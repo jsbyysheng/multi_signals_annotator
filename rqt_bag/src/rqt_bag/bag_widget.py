@@ -346,22 +346,7 @@ class BagWidget(QWidget):
 
             # Play speed
             spd = self._timeline.play_speed
-            if spd != 0.0:
-                if spd > 1.0:
-                    spd_str = '>> %.0fx' % spd
-                elif spd == 1.0:
-                    spd_str = '>'
-                elif spd > 0.0:
-                    spd_str = '> 1/%.0fx' % (1.0 / spd)
-                elif spd > -1.0:
-                    spd_str = '< 1/%.0fx' % (1.0 / -spd)
-                elif spd == 1.0:
-                    spd_str = '<'
-                else:
-                    spd_str = '<< %.0fx' % -spd
-                self.playspeed_label.setText(spd_str)
-            else:
-                self.playspeed_label.setText('')
+            self.playspeed_label.setText('x {:.4f}'.format(spd))
         except Exception as e:
             print(e)
     # Shutdown all members
