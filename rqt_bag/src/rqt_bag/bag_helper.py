@@ -50,6 +50,8 @@ msg_map_file = os.path.join(rp.get_path('rqt_bag'), 'config', 'msg_map.yaml')
 with open(msg_map_file, 'r') as f:
     msg_map = yaml.load(f)
 
+SLIDER_BAR_MAX = 100000
+
 def timeit(func):
     @functools.wraps(func)
     def wrapper(*args, **kargs):

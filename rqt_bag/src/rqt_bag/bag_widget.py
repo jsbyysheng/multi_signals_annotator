@@ -100,11 +100,11 @@ class BagWidget(QWidget):
         self.horizontalSlider.sliderPressed.connect(self._handle_slider_pressed)
         self.horizontalSlider.sliderReleased.connect(self._handle_slider_released)
         self.horizontalSlider.valueChanged.connect(self._handle_slider_valueChanged)
-        self.horizontalSlider.setMinimum(0.0)
-        self.horizontalSlider.setMaximum(100.0)
+        self.horizontalSlider.setMinimum(0)
+        self.horizontalSlider.setMaximum(bag_helper.SLIDER_BAR_MAX)
         self.horizontalSlider.setSingleStep(1)
         self.horizontalSlider.setTickPosition(QSlider.TicksBelow)
-        self.horizontalSlider.setTickInterval(1)
+        self.horizontalSlider.setTickInterval(bag_helper.SLIDER_BAR_MAX / 100)
 
         self.lineEdit_playhead_status = 'finish'
         self.lineEdit_playhead.textEdited.connect(self._handle_lineEdit_playhead_textEdited)
@@ -240,12 +240,12 @@ class BagWidget(QWidget):
 
     def _handle_slider_released(self):
         if self.slider_status == 'valueChanged':
-            self.change_playhead_position(0.01 * self.horizontalSlider.value() * self._timeline.duration())
+            self.change_playhead_position(1.0 / bag_helper.SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
         self.slider_status = 'released'
 
     def _handle_slider_valueChanged(self):
         if self.slider_status == 'released':
-            self.change_playhead_position(0.01 * self.horizontalSlider.value() * self._timeline.duration())
+            self.change_playhead_position(1.0 / bag_helper.SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
         elif self.slider_status == 'pressed':
             self.slider_status = 'valueChanged'
 
@@ -421,7 +421,7 @@ class BagWidget(QWidget):
     def _update_player_progress(self):
         if self.slider_status == 'released':
             self.horizontalSlider.blockSignals(True)
-            self.horizontalSlider.setValue(100.0 * self._timeline._playhead_positions / self._timeline.duration())
+            self.horizontalSlider.setValue(1.0 * bag_helper.SLIDER_BAR_MAX * self._timeline._playhead_positions / self._timeline.duration())
             self.horizontalSlider.blockSignals(False)
         if self.lineEdit_playhead_status == 'finish':
             self.lineEdit_playhead.blockSignals(True)
