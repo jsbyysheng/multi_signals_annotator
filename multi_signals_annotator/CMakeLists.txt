@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(rqt_bag)
+project(multi_signals_annotator)
 find_package(catkin REQUIRED)
 catkin_package()
 catkin_python_setup()
@@ -12,6 +12,6 @@ install(DIRECTORY launch resource
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
-catkin_install_python(PROGRAMS scripts/rqt_bag
+catkin_install_python(PROGRAMS scripts/multi_signals_annotator
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

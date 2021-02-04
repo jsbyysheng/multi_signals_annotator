@@ -66,7 +66,7 @@ class Bag(Plugin):
         load_thread.start()
 
     def _parse_args(self, argv):
-        parser = argparse.ArgumentParser(prog='rqt_bag', add_help=False)
+        parser = argparse.ArgumentParser(prog='multi_signals_annotator', add_help=False)
         Bag.add_arguments(parser)
         return parser.parse_args(argv)
 
@@ -79,7 +79,7 @@ class Bag(Plugin):
 
     @staticmethod
     def add_arguments(parser):
-        group = parser.add_argument_group('Options for rqt_bag plugin')
+        group = parser.add_argument_group('Options for multi_signals_annotator plugin')
         group.add_argument('--clock', action='store_true', help='publish the clock time')
         group.add_argument('bagfiles', type=lambda x: Bag._isfile(parser, x),
                            nargs='*', default=[], help='Bagfiles to load')

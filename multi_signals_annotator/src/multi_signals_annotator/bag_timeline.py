@@ -46,7 +46,7 @@ from operator import attrgetter
 from python_qt_binding.QtCore import Qt, QObject, QTimer, QProcess, qWarning, Signal
 from python_qt_binding.QtWidgets import QGraphicsScene, QMessageBox
 
-from rqt_bag import bag_helper
+from multi_signals_annotator import bag_helper
 
 from .bag_helper import get_topics, notNoneAttrs
 from .player import Player
@@ -66,7 +66,7 @@ class BagTimeline(QObject):
     def __init__(self, context, publish_clock):
         """
         :param context:
-            plugin context hook to enable adding rqt_bag plugin widgets as ROS_GUI snapin panes,
+            plugin context hook to enable adding multi_signals_annotator plugin widgets as ROS_GUI snapin panes,
             ''PluginContext''
         """
         super(BagTimeline, self).__init__()
@@ -373,7 +373,7 @@ class BagTimeline(QObject):
 
         # If no messages, prompt the user and return
         if total_messages == 0:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'No messages found', QMessageBox.Ok).exec_()
+            QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'No messages found', QMessageBox.Ok).exec_()
             self.stop_background_task()
             return
 
@@ -384,7 +384,7 @@ class BagTimeline(QObject):
                 topic_path = os.path.join(path_to_save, topic[1:].replace('/', '.') + '.pkl')
                 folders_dict[topic] = topic_path
         except Exception as e:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
+            QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
             self.stop_background_task()
             return
 
@@ -459,7 +459,7 @@ class BagTimeline(QObject):
                 dataframe_by_topic[topic].to_pickle(folders_dict[topic])
                 # print(dataframe_by_topic[topic].head())
         except Exception as e:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error saving dataframes [%s]: %s' % (
+            QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'Error saving dataframes [%s]: %s' % (
                 "err", str(e)), QMessageBox.Ok).exec_()
         self.set_status_text.emit('Exporting selected topics has been done!')
         self.stop_background_task()

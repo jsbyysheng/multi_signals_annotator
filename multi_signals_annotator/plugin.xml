@@ -1,5 +1,5 @@
 <library path="src">
-  <class name="Bag" type="rqt_bag.bag.Bag" base_class_type="rqt_gui_py::Plugin">
+  <class name="Bag" type="multi_signals_annotator.bag.Bag" base_class_type="rqt_gui_py::Plugin">
     <description>
       A Python GUI plugin for displaying and replaying ROS bag files.
     </description>

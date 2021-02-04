@@ -46,7 +46,7 @@ import numpy as np
 import subprocess, yaml
 
 rp = rospkg.RosPack()
-msg_map_file = os.path.join(rp.get_path('rqt_bag'), 'config', 'msg_map.yaml')
+msg_map_file = os.path.join(rp.get_path('multi_signals_annotator'), 'config', 'msg_map.yaml')
 with open(msg_map_file, 'r') as f:
     msg_map = yaml.load(f)
 

@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="bag" default="" doc="bag file to load"/>
-  <node name="rqt_bag" pkg="rqt_bag" type="rqt_bag"
+  <node name="multi_signals_annotator" pkg="multi_signals_annotator" type="multi_signals_annotator"
     args="$(arg bag)"/>
 </launch>

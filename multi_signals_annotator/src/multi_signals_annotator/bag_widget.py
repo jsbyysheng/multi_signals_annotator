@@ -46,7 +46,7 @@ from python_qt_binding.QtGui import QIcon, QResizeEvent, QStandardItem, QStandar
 from python_qt_binding.QtWidgets import QFileDialog, QGraphicsView, QWidget, QMessageBox, QLineEdit, QPushButton, QSlider, QHeaderView
 
 import rosbag
-from rqt_bag import bag_helper
+from .bag_helper import stamp_to_str, filesize_to_str, SLIDER_BAR_MAX
 from .bag_timeline import BagTimeline
 
 class BagGraphicsView(QGraphicsView):
@@ -72,7 +72,7 @@ class BagWidget(QWidget):
         """
         super(BagWidget, self).__init__()
         rp = rospkg.RosPack()
-        ui_file = os.path.join(rp.get_path('rqt_bag'), 'resource', 'bag_widget.ui')
+        ui_file = os.path.join(rp.get_path('multi_signals_annotator'), 'resource', 'bag_widget.ui')
         loadUi(ui_file, self, {'BagGraphicsView': BagGraphicsView})
 
         self.setObjectName('BagWidget')
@@ -101,10 +101,10 @@ class BagWidget(QWidget):
         self.horizontalSlider.sliderReleased.connect(self._handle_slider_released)
         self.horizontalSlider.valueChanged.connect(self._handle_slider_valueChanged)
         self.horizontalSlider.setMinimum(0)
-        self.horizontalSlider.setMaximum(bag_helper.SLIDER_BAR_MAX)
+        self.horizontalSlider.setMaximum(SLIDER_BAR_MAX)
         self.horizontalSlider.setSingleStep(1)
         self.horizontalSlider.setTickPosition(QSlider.TicksBelow)
-        self.horizontalSlider.setTickInterval(bag_helper.SLIDER_BAR_MAX / 100)
+        self.horizontalSlider.setTickInterval(SLIDER_BAR_MAX / 100)
 
         self.lineEdit_playhead_status = 'finish'
         self.lineEdit_playhead.textEdited.connect(self._handle_lineEdit_playhead_textEdited)
@@ -216,7 +216,7 @@ class BagWidget(QWidget):
                 self.tableData.loc[row]['Tag'] = sender.text()
 
     def _handle_clearAllTags(self):
-        returnValue = QMessageBox(QMessageBox.Information, 'rqt_bag', 'Are you sure to clear all tags?', QMessageBox.Ok | QMessageBox.Cancel).exec_()
+        returnValue = QMessageBox(QMessageBox.Information, 'multi_signals_annotator', 'Are you sure to clear all tags?', QMessageBox.Ok | QMessageBox.Cancel).exec_()
         if returnValue == QMessageBox.Ok:
             while(self.tableWidget.rowCount() > 0):
                 self.tableWidget.removeRow(0)
@@ -231,21 +231,21 @@ class BagWidget(QWidget):
                 if not os.path.exists(path_to_save):
                     os.mkdir(path_to_save)
                 self.tableData.to_csv(os.path.join(path_to_save, 'Tags.csv'))
-                QMessageBox(QMessageBox.Information, 'rqt_bag', 'All tags have been saved!', QMessageBox.Ok).exec_()
+                QMessageBox(QMessageBox.Information, 'multi_signals_annotator', 'All tags have been saved!', QMessageBox.Ok).exec_()
             except Exception as e:
-                QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
+                QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
 
     def _handle_slider_pressed(self):
         self.slider_status = 'pressed'
 
     def _handle_slider_released(self):
         if self.slider_status == 'valueChanged':
-            self.change_playhead_position(1.0 / bag_helper.SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
+            self.change_playhead_position(1.0 / SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
         self.slider_status = 'released'
 
     def _handle_slider_valueChanged(self):
         if self.slider_status == 'released':
-            self.change_playhead_position(1.0 / bag_helper.SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
+            self.change_playhead_position(1.0 / SLIDER_BAR_MAX * self.horizontalSlider.value() * self._timeline.duration())
         elif self.slider_status == 'pressed':
             self.slider_status = 'valueChanged'
 
@@ -408,9 +408,9 @@ class BagWidget(QWidget):
                         os.mkdir(path_to_save)
                     self._timeline.extract_data_from_bag(topics_selection, path_to_save, start_stamp, end_stamp)
                 except Exception as e:
-                    QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
+                    QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
         else:
-            QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Please select 1 topic at least.', QMessageBox.Ok).exec_()
+            QMessageBox(QMessageBox.Warning, 'multi_signals_annotator', 'Please select 1 topic at least.', QMessageBox.Ok).exec_()
 
     def _set_status_text(self, text):
         self.progress_bar.setTextVisible(False)
@@ -421,7 +421,7 @@ class BagWidget(QWidget):
     def _update_player_progress(self):
         if self.slider_status == 'released':
             self.horizontalSlider.blockSignals(True)
-            self.horizontalSlider.setValue(1.0 * bag_helper.SLIDER_BAR_MAX * self._timeline._playhead_positions / self._timeline.duration())
+            self.horizontalSlider.setValue(1.0 * SLIDER_BAR_MAX * self._timeline._playhead_positions / self._timeline.duration())
             self.horizontalSlider.blockSignals(False)
         if self.lineEdit_playhead_status == 'finish':
             self.lineEdit_playhead.blockSignals(True)
@@ -437,13 +437,13 @@ class BagWidget(QWidget):
             self.stamp_label.setText('%.9fs' % self._timeline._curr_timestamp)
 
             # Human-readable time
-            self.date_label.setText(bag_helper.stamp_to_str(self._timeline._curr_timestamp))
+            self.date_label.setText(stamp_to_str(self._timeline._curr_timestamp))
 
             # Elapsed time (in seconds)
             self.seconds_label.setText('%.3fs' % (self._timeline.duration() - self._timeline._playhead_positions))
 
             # File size
-            self.filesize_label.setText(bag_helper.filesize_to_str(self._timeline.file_size()))
+            self.filesize_label.setText(filesize_to_str(self._timeline.file_size()))
 
             # Play speed
             spd = self._timeline.play_speed

@@ -1,0 +1,7 @@
+/**
+\mainpage
+\htmlinclude manifest.html
+
+\b multi_signals_annotator based on rqt_bag, providing a GUI plugin for exporting, annotating and playing ROS bag files.
+
+*/
