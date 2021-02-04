@@ -456,6 +456,19 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="pushButton_Clear_All_Tags">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Clear All Tags</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_Save_All_Tags">
        <property name="minimumSize">
         <size>

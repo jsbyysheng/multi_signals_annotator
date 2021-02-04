@@ -128,6 +128,7 @@ class BagWidget(QWidget):
         self.tableData = pd.DataFrame(columns=['Timestamp', 'Tag'])
 
         self.pushButton_Add_Tag.clicked[bool].connect(self._handle_addTag)
+        self.pushButton_Clear_All_Tags.clicked[bool].connect(self._handle_clearAllTags)
         self.pushButton_Save_All_Tags.clicked[bool].connect(self._handle_saveAllTags)
 
         # TODO when the closeEvent is properly called by ROS_GUI implement that
@@ -213,6 +214,15 @@ class BagWidget(QWidget):
             row = self.tableWidget.indexAt(sender.pos()).row()
             if row in self.tableData.index:
                 self.tableData.loc[row]['Tag'] = sender.text()
+
+    def _handle_clearAllTags(self):
+        returnValue = QMessageBox(QMessageBox.Information, 'rqt_bag', 'Are you sure to clear all tags?', QMessageBox.Ok | QMessageBox.Cancel).exec_()
+        if returnValue == QMessageBox.Ok:
+            while(self.tableWidget.rowCount() > 0):
+                self.tableWidget.removeRow(0)
+            self.tableData = None
+            del self.tableData
+            self.tableData = pd.DataFrame(columns=['Timestamp', 'Tag'])
 
     def _handle_saveAllTags(self):
         if self.last_open_saving_dir and os.path.exists(self.last_open_saving_dir):
@@ -333,6 +343,9 @@ class BagWidget(QWidget):
 
             while(self.tableWidget.rowCount() > 0):
                 self.tableWidget.removeRow(0)
+            self.tableData = None
+            del self.tableData
+            self.tableData = pd.DataFrame(columns=['Timestamp', 'Tag'])
 
     def load_buttons_status(self, status):
         self.pushButton_load.setEnabled(status)
