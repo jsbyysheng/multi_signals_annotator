@@ -31,6 +31,21 @@
    </property>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_export_path_display">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <property name="topMargin">
+      <number>5</number>
+     </property>
+     <property name="rightMargin">
+      <number>5</number>
+     </property>
+     <property name="bottomMargin">
+      <number>5</number>
+     </property>
      <item>
       <widget class="QLabel" name="label_open_bag_file">
        <property name="minimumSize">
@@ -51,6 +66,22 @@
       <widget class="QLineEdit" name="lineEdit_bag_file_path"/>
      </item>
      <item>
+      <spacer name="horizontalSpacer_3">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Minimum</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>200</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_load">
        <property name="minimumSize">
         <size>
@@ -67,6 +98,21 @@
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_export_selected_topics">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <property name="topMargin">
+      <number>5</number>
+     </property>
+     <property name="rightMargin">
+      <number>5</number>
+     </property>
+     <property name="bottomMargin">
+      <number>5</number>
+     </property>
      <item>
       <widget class="QLabel" name="label_export_selected_topics">
        <property name="minimumSize">
@@ -87,6 +133,19 @@
       <widget class="QLineEdit" name="lineEdit_export_path"/>
      </item>
      <item>
+      <widget class="QPushButton" name="pushButton_choose_export_path">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Choose Path</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_export">
        <property name="minimumSize">
         <size>
@@ -103,17 +162,20 @@
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_2">
-     <property name="leftMargin">
+     <property name="spacing">
       <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
      </property>
      <property name="topMargin">
-      <number>10</number>
+      <number>5</number>
      </property>
      <property name="rightMargin">
-      <number>10</number>
+      <number>5</number>
      </property>
      <property name="bottomMargin">
-      <number>10</number>
+      <number>5</number>
      </property>
      <item>
       <widget class="QPushButton" name="pushButton_selectAll">
@@ -252,17 +314,20 @@
    </item>
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_playcontrol">
+     <property name="spacing">
+      <number>10</number>
+     </property>
      <property name="leftMargin">
       <number>5</number>
      </property>
      <property name="topMargin">
-      <number>5</number>
+      <number>10</number>
      </property>
      <property name="rightMargin">
       <number>5</number>
      </property>
      <property name="bottomMargin">
-      <number>5</number>
+      <number>10</number>
      </property>
      <item>
       <spacer name="horizontalSpacer_2">
@@ -364,7 +429,62 @@
        </property>
       </widget>
      </item>
+     <item>
+      <widget class="Line" name="line">
+       <property name="minimumSize">
+        <size>
+         <width>10</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_Add_Tag">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Add Tag</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_Save_All_Tags">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Save All Tags</string>
+       </property>
+      </widget>
+     </item>
     </layout>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="tableWidget">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="rowCount">
+      <number>0</number>
+     </property>
+     <property name="columnCount">
+      <number>0</number>
+     </property>
+    </widget>
    </item>
    <item>
     <layout class="QHBoxLayout" name="status_bar_layout">

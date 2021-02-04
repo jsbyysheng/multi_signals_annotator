@@ -36,11 +36,14 @@ import time
 
 import rospy
 import rospkg
+import numpy as np
+import pandas as pd
+
 
 from python_qt_binding import loadUi
 from python_qt_binding.QtCore import qDebug, QFileInfo, Qt, qWarning, Signal
 from python_qt_binding.QtGui import QIcon, QResizeEvent, QStandardItem, QStandardItemModel, QDoubleValidator
-from python_qt_binding.QtWidgets import QFileDialog, QGraphicsView, QWidget, QMessageBox, QSlider
+from python_qt_binding.QtWidgets import QFileDialog, QGraphicsView, QWidget, QMessageBox, QLineEdit, QPushButton, QSlider, QHeaderView
 
 import rosbag
 from rqt_bag import bag_helper
@@ -88,6 +91,7 @@ class BagWidget(QWidget):
         self.faster_button.clicked[bool].connect(self._handle_faster_clicked)
         self.slower_button.clicked[bool].connect(self._handle_slower_clicked)
         self.pushButton_load.clicked[bool].connect(self._handle_load_clicked)
+        self.pushButton_choose_export_path.clicked[bool].connect(self._handel_chosse_export_path)
         self.pushButton_export.clicked[bool].connect(self._handle_save_clicked)
         self.pushButton_selectAll.clicked[bool].connect(self._handle_select_all)
         self.pushButton_unSelectAll.clicked[bool].connect(self._handle_unselect_all)
@@ -114,6 +118,18 @@ class BagWidget(QWidget):
 
         self.topicsListView.clicked.connect(self._handle_topicsList_clicked)
 
+        self.tableWidget.setColumnCount(3)
+        self.tableWidgetmodel = QStandardItemModel()
+        self.tableWidget.setHorizontalHeaderLabels(['Timestamp', 'Tag', 'Operation'])
+        tableWidgetHeader = self.tableWidget.horizontalHeader()
+        tableWidgetHeader.setSectionResizeMode(0, QHeaderView.Stretch)
+        tableWidgetHeader.setSectionResizeMode(1, QHeaderView.Stretch)
+        tableWidgetHeader.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tableData = pd.DataFrame(columns=['Timestamp', 'Tag'])
+
+        self.pushButton_Add_Tag.clicked[bool].connect(self._handle_addTag)
+        self.pushButton_Save_All_Tags.clicked[bool].connect(self._handle_saveAllTags)
+
         # TODO when the closeEvent is properly called by ROS_GUI implement that
         # event instead of destroyed
         self.destroyed.connect(self.handle_destroy)
@@ -126,6 +142,10 @@ class BagWidget(QWidget):
         self.lineEdit_playhead.setEnabled(False)
         self.pushButton_selectAll.setEnabled(False)
         self.pushButton_unSelectAll.setEnabled(False)
+        self.pushButton_Add_Tag.setEnabled(False)
+        self.pushButton_Save_All_Tags.setEnabled(False)
+        self.tableWidget.setEnabled(False)
+        self.pushButton_choose_export_path.setEnabled(False)
 
         self.lineEdit_bag_file_path.setText(self.last_open_dir)
         self.lineEdit_export_path.setText(self.last_open_saving_dir)
@@ -143,6 +163,67 @@ class BagWidget(QWidget):
     def handle_close(self, event):
         self.shutdown_all()
         event.accept()
+
+    def _handle_addTag(self):
+        self._append_one_row()
+        self.tableData = self.tableData.append({'Timestamp': str(self._timeline._curr_timestamp), 'Tag': 'None'}, ignore_index=True)
+
+    def _append_one_row(self):
+        self.tableWidget.setRowCount(self.tableWidget.rowCount() + 1)
+
+        tableItem = QLineEdit()
+        tableItem.setValidator(QDoubleValidator(0.0, np.inf, 9))
+        tableItem.setText('{:.9f}'.format(self._timeline._curr_timestamp))
+        tableItem.setAlignment(Qt.AlignCenter)
+        tableItem.editingFinished.connect(self._clicked_row_Timestamp_editingFinished)
+        self.tableWidget.setCellWidget(self.tableWidget.rowCount() - 1, 0, tableItem)
+
+        tableItem = QLineEdit()
+        tableItem.setText('None')
+        tableItem.setAlignment(Qt.AlignCenter)
+        tableItem.editingFinished.connect(self._clicked_row_Tag_editingFinished)
+        self.tableWidget.setCellWidget(self.tableWidget.rowCount() - 1, 1, tableItem)
+
+        pressButton_del = QPushButton(self.tableWidget)
+        pressButton_del.setText('Delete')
+        pressButton_del.setMinimumWidth(200)
+        pressButton_del.clicked[bool].connect(self._delete_clicked_row)
+        self.tableWidget.setCellWidget(self.tableWidget.rowCount() - 1, 2, pressButton_del)
+
+    def _delete_clicked_row(self):
+        button = self.sender()
+        if button:
+            row = self.tableWidget.indexAt(button.pos()).row()
+            self.tableWidget.removeRow(row)
+            # self.tableData.drop(index=self.tableData.index[[row]], inplace=True)
+            if row in self.tableData.index:
+                self.tableData.drop(row, inplace=True)
+                self.tableData.reset_index(drop=True, inplace=True)
+
+    def _clicked_row_Timestamp_editingFinished(self):
+        sender = self.sender()
+        if sender:
+            row = self.tableWidget.indexAt(sender.pos()).row()
+            if row in self.tableData.index:
+                self.tableData.loc[row]['Timestamp'] = sender.text()
+
+    def _clicked_row_Tag_editingFinished(self):
+        sender = self.sender()
+        if sender:
+            row = self.tableWidget.indexAt(sender.pos()).row()
+            if row in self.tableData.index:
+                self.tableData.loc[row]['Tag'] = sender.text()
+
+    def _handle_saveAllTags(self):
+        if self.last_open_saving_dir and os.path.exists(self.last_open_saving_dir):
+            path_to_save = os.path.join(self.last_open_saving_dir, self.bagfile_name)
+            try:
+                if not os.path.exists(path_to_save):
+                    os.mkdir(path_to_save)
+                self.tableData.to_csv(os.path.join(path_to_save, 'Tags.csv'))
+                QMessageBox(QMessageBox.Information, 'rqt_bag', 'All tags have been saved!', QMessageBox.Ok).exec_()
+            except Exception as e:
+                QMessageBox(QMessageBox.Warning, 'rqt_bag', 'Error create the folder {} for exporting: {}'.format(path_to_save, str(e)), QMessageBox.Ok).exec_()
 
     def _handle_slider_pressed(self):
         self.slider_status = 'pressed'
@@ -250,6 +331,9 @@ class BagWidget(QWidget):
             self.topicsListView.setModel(self.topicsListViewModel)
             self._update_status_bar()
 
+            while(self.tableWidget.rowCount() > 0):
+                self.tableWidget.removeRow(0)
+
     def load_buttons_status(self, status):
         self.pushButton_load.setEnabled(status)
         self.play_button.setEnabled(status)
@@ -260,6 +344,10 @@ class BagWidget(QWidget):
         self.lineEdit_playhead.setEnabled(status)
         self.pushButton_selectAll.setEnabled(status)
         self.pushButton_unSelectAll.setEnabled(status)
+        self.pushButton_Add_Tag.setEnabled(status)
+        self.pushButton_Save_All_Tags.setEnabled(status)
+        self.tableWidget.setEnabled(status)
+        self.pushButton_choose_export_path.setEnabled(status)
 
     def load_bag(self, filename):
         qDebug("Loading '%s'..." % filename.encode(errors='replace'))
@@ -286,19 +374,22 @@ class BagWidget(QWidget):
             if self.topicsListViewModel.item(i).checkState() == Qt.Checked
         ]
         return topics_selection
-
-    def _handle_save_clicked(self):
+    
+    def _handel_chosse_export_path(self):
         if os.path.exists(self.lineEdit_export_path.text()):
             self.last_open_saving_dir = self.lineEdit_export_path.text()
+        path_to_save = QFileDialog.getExistingDirectory(self, self.tr('Choose dir to save data'), self.last_open_saving_dir)
+        if path_to_save and os.path.exists(path_to_save):
+            self.last_open_saving_dir = path_to_save
+            self.lineEdit_export_path.setText(self.last_open_saving_dir)
+
+    def _handle_save_clicked(self):
         topics_selection = self._get_selected_topics()
         if topics_selection is not None and topics_selection != [] and None not in topics_selection:
             start_stamp = None
             end_stamp = None
-            path_to_save = QFileDialog.getExistingDirectory(self, self.tr('Choose dir to save data'), self.last_open_saving_dir)
-            if path_to_save and os.path.exists(path_to_save):
-                self.last_open_saving_dir = path_to_save
-                self.lineEdit_export_path.setText(self.last_open_saving_dir)
-                path_to_save = os.path.join(path_to_save, self.bagfile_name)
+            if self.last_open_saving_dir and os.path.exists(self.last_open_saving_dir):
+                path_to_save = os.path.join(self.last_open_saving_dir, self.bagfile_name)
                 try:
                     if not os.path.exists(path_to_save):
                         os.mkdir(path_to_save)
